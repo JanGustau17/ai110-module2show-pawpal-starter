@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from copy import copy
 from dataclasses import dataclass, field
 from datetime import date, time, datetime, timedelta
@@ -39,6 +40,10 @@ class Task:
         other_start = datetime.combine(other_task.date, other_task.time)
         other_end = other_start + timedelta(minutes=other_task.duration_minutes)
         return self_start < other_end and other_start < self_end
+
+    def end_time(self) -> time:
+        """Return the clock time when this task finishes."""
+        return (datetime.combine(self.date, self.time) + timedelta(minutes=self.duration_minutes)).time()
 
     def to_dict(self) -> Dict[str, str]:
         """Serialize all task fields to a flat string dictionary."""
@@ -148,9 +153,7 @@ class Scheduler:
         if not task.is_recurring or task.recurrence not in ("daily", "weekly"):
             return None
 
-        one_day  = timedelta(days=1)
-        one_week = timedelta(weeks=1)
-        gap = one_day if task.recurrence == "daily" else one_week
+        gap = timedelta(days=1) if task.recurrence == "daily" else timedelta(weeks=1)
 
         next_task = copy(task)
         next_task.date   = task.date + gap
@@ -178,11 +181,11 @@ class Scheduler:
 
     def filter_by_status(self, status: str) -> List[Task]:
         """Return all tasks whose status matches the given value (e.g. 'pending' or 'done')."""
-        return [t for t in self.tasks if t.status == status]
+        return self.filter_tasks(status=status)
 
     def filter_by_pet(self, pet_name: str) -> List[Task]:
         """Return all tasks belonging to the named pet."""
-        return [t for t in self.tasks if t.pet_name == pet_name]
+        return self.filter_tasks(pet_name=pet_name)
 
     def filter_tasks(
         self,
@@ -219,9 +222,8 @@ class Scheduler:
         Groups tasks by date first so only same-date pairs are compared,
         avoiding O(n²) cross-date checks.
         """
-        from collections import defaultdict
         check = tasks if tasks is not None else self.tasks
-        by_date: Dict[date, List[Task]] = defaultdict(list)
+        by_date = defaultdict(list)
         for t in check:
             by_date[t.date].append(t)
 
@@ -241,13 +243,11 @@ class Scheduler:
         """
         warnings = []
         for a, b in self.detect_conflicts(tasks):
-            a_end = (datetime.combine(a.date, a.time) + timedelta(minutes=a.duration_minutes)).time()
-            b_end = (datetime.combine(b.date, b.time) + timedelta(minutes=b.duration_minutes)).time()
             msg = (
                 f"WARNING: '{a.title}' ({a.pet_name}, "
-                f"{a.time.strftime('%H:%M')}–{a_end.strftime('%H:%M')}) "
+                f"{a.time.strftime('%H:%M')}–{a.end_time().strftime('%H:%M')}) "
                 f"overlaps with '{b.title}' ({b.pet_name}, "
-                f"{b.time.strftime('%H:%M')}–{b_end.strftime('%H:%M')}) "
+                f"{b.time.strftime('%H:%M')}–{b.end_time().strftime('%H:%M')}) "
                 f"on {a.date}."
             )
             warnings.append(msg)

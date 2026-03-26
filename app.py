@@ -17,9 +17,23 @@ if "owner" not in st.session_state:
 if "scheduler" not in st.session_state:
     st.session_state.scheduler = Scheduler()
 
-# Convenience aliases so the rest of the file stays readable
 owner: Owner = st.session_state.owner
 scheduler: Scheduler = st.session_state.scheduler
+
+# Computed once per rerun; reused in sections 3, 4, and wherever pet names are needed
+pet_options = [p.name for p in owner.pets]
+
+
+def _show_warnings(warnings: list, header: str = "") -> bool:
+    """Display each warning with st.warning(); return True if any were shown."""
+    if not warnings:
+        return False
+    if header:
+        st.markdown(header)
+    for msg in warnings:
+        st.warning(msg)
+    return True
+
 
 # ── 1) Owner setup ─────────────────────────────────────────────────────────────
 st.subheader("1) Owner Profile")
@@ -49,7 +63,6 @@ if st.button("Save pet"):
         st.error("Please save your owner profile first.")
     else:
         name = pet_name_input.strip() or "Unnamed Pet"
-        # If a pet with this name already exists, update it; otherwise add a new one
         existing = next((p for p in owner.pets if p.name == name), None)
         if existing:
             existing.update_profile(name, species_input, int(age_input))
@@ -71,8 +84,6 @@ st.divider()
 st.subheader("3) Schedule a Walk")
 st.caption("Pick a pet, date, time, and duration.")
 
-pet_options = [p.name for p in owner.pets]
-
 if not pet_options:
     st.warning("Add a pet first before scheduling a walk.")
 else:
@@ -84,7 +95,7 @@ else:
 
     if st.button("Schedule walk"):
         pet = next(p for p in owner.pets if p.name == selected_pet_name)
-        task = scheduler.schedule_walk(
+        scheduler.schedule_walk(
             pet=pet,
             walk_date=walk_date,
             walk_time=walk_time,
@@ -92,10 +103,7 @@ else:
             priority=walk_priority,
         )
         st.success(f"Walk scheduled for {pet.name} on {walk_date} at {walk_time.strftime('%I:%M %p')}.")
-        # Immediately check if the new task conflicts with anything already scheduled
-        new_warnings = scheduler.warn_conflicts(scheduler.get_tasks_for_date(walk_date))
-        for msg in new_warnings:
-            st.warning(msg)
+        _show_warnings(scheduler.warn_conflicts(scheduler.get_tasks_for_date(walk_date)))
 
 st.divider()
 
@@ -103,21 +111,19 @@ st.divider()
 st.subheader("4) Schedule a Task")
 st.caption("Add any care task — feeding, medication, grooming, enrichment, and more.")
 
-pet_options_task = [p.name for p in owner.pets]
-
-if not pet_options_task:
+if not pet_options:
     st.warning("Add a pet first before scheduling a task.")
 else:
-    task_pet_name = st.selectbox("Pet", pet_options_task, key="task_pet")
-    task_type     = st.selectbox(
+    task_pet_name  = st.selectbox("Pet", pet_options, key="task_pet")
+    task_type      = st.selectbox(
         "Task type", ["feeding", "medication", "grooming", "enrichment", "other"],
         key="task_type",
     )
-    task_title    = st.text_input("Task title", value="Morning feeding", key="task_title")
-    task_date     = st.date_input("Date", value=date.today(), key="task_date")
-    task_time     = st.time_input("Time", key="task_time")
-    task_duration = st.number_input("Duration (minutes)", min_value=1, max_value=240, value=15, key="task_duration")
-    task_priority = st.selectbox("Priority", ["low", "medium", "high"], index=1, key="task_priority")
+    task_title     = st.text_input("Task title", value="Morning feeding", key="task_title")
+    task_date      = st.date_input("Date", value=date.today(), key="task_date")
+    task_time      = st.time_input("Time", key="task_time")
+    task_duration  = st.number_input("Duration (minutes)", min_value=1, max_value=240, value=15, key="task_duration")
+    task_priority  = st.selectbox("Priority", ["low", "medium", "high"], index=1, key="task_priority")
     task_recurring = st.checkbox("Recurring task", key="task_recurring")
 
     if st.button("Add task"):
@@ -135,10 +141,7 @@ else:
         scheduler.add_task(new_task)
         pet.add_task(new_task)
         st.success(f"'{new_task.title}' added for {pet.name} on {task_date} at {task_time.strftime('%I:%M %p')}.")
-        # Immediately check if the new task conflicts with anything already scheduled
-        new_warnings = scheduler.warn_conflicts(scheduler.get_tasks_for_date(task_date))
-        for msg in new_warnings:
-            st.warning(msg)
+        _show_warnings(scheduler.warn_conflicts(scheduler.get_tasks_for_date(task_date)))
 
 st.divider()
 
@@ -149,13 +152,8 @@ st.caption("All tasks for today, sorted by priority then time.")
 today_tasks = owner.get_today_tasks(scheduler, date.today())
 
 if today_tasks:
-    warnings = scheduler.warn_conflicts(today_tasks)
-    if warnings:
-        for msg in warnings:
-            st.warning(msg)
-    else:
+    if not _show_warnings(scheduler.warn_conflicts(today_tasks)):
         st.success("No conflicts — schedule looks good.")
-
     st.table([t.to_dict() for t in today_tasks])
 else:
     st.info("No tasks scheduled for today.")
@@ -170,23 +168,14 @@ if st.button("Generate schedule"):
     if not owner.pets:
         st.error("Add a pet and some tasks first.")
     else:
-        raw = owner.get_today_tasks(scheduler, date.today())
-        if not raw:
+        # Reuse today_tasks already computed above rather than calling get_today_tasks again
+        if not today_tasks:
             st.info("No tasks for today to schedule.")
         else:
-            before_warnings = scheduler.warn_conflicts(raw)
-            if before_warnings:
-                st.markdown("**Conflicts found — resolving automatically:**")
-                for msg in before_warnings:
-                    st.warning(msg)
-
-            resolved = scheduler.resolve_conflicts(raw)
-
-            after_warnings = scheduler.warn_conflicts(resolved)
-            if after_warnings:
+            _show_warnings(scheduler.warn_conflicts(today_tasks), "**Conflicts found — resolving automatically:**")
+            resolved = scheduler.resolve_conflicts(today_tasks)
+            if _show_warnings(scheduler.warn_conflicts(resolved)):
                 st.error("Some conflicts could not be resolved automatically.")
-                for msg in after_warnings:
-                    st.warning(msg)
             else:
                 total_min = sum(t.duration_minutes for t in resolved)
                 st.success(
