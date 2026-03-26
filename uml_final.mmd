@@ -1,0 +1,62 @@
+classDiagram
+    class Owner {
+        +string name
+        +int available_minutes_per_day
+        +dict preferences
+        +list~Pet~ pets
+        +add_pet(pet) void
+        +set_preferences(preferences) void
+        +get_today_tasks(scheduler, target_date) list~Task~
+    }
+
+    class Pet {
+        +string name
+        +string species
+        +int age
+        +list~Task~ tasks
+        +update_profile(name, species, age) void
+        +add_task(task) void
+        +get_tasks_for_date(target_date) list~Task~
+    }
+
+    class Task {
+        +string title
+        +string task_type
+        +date date
+        +time time
+        +int duration_minutes
+        +string priority
+        +string pet_name
+        +bool is_recurring
+        +string recurrence
+        +string status
+        +mark_done() void
+        +reschedule(new_date, new_time) void
+        +end_time() time
+        +conflicts_with(other_task) bool
+        +to_dict() dict
+    }
+
+    class Scheduler {
+        +list~Task~ tasks
+        +string sort_strategy
+        +add_task(task) void
+        +schedule_walk(pet, date, time, duration, priority) Task
+        +complete_task(task) Task
+        +get_tasks_for_date(target_date) list~Task~
+        +get_today_tasks() list~Task~
+        +sort_tasks(tasks) list~Task~
+        +filter_tasks(pet_name, status, task_type) list~Task~
+        +filter_by_pet(pet_name) list~Task~
+        +filter_by_status(status) list~Task~
+        +expand_recurring(days) list~Task~
+        +detect_conflicts(tasks) list~tuple~
+        +warn_conflicts(tasks) list~string~
+        +resolve_conflicts(tasks) list~Task~
+    }
+
+    Owner "1" *-- "0..*" Pet : owns
+    Pet "1" o-- "0..*" Task : has
+    Scheduler "1" --> "0..*" Task : manages
+    Owner "1" ..> Scheduler : requests plans
+    Scheduler ..> Pet : schedules care for

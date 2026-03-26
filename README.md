@@ -1,53 +1,164 @@
-# PawPal+ (Module 2 Project)
+# PawPal+
 
-You are building **PawPal+**, a Streamlit app that helps a pet owner plan care tasks for their pet.
+A smart pet care scheduler built with Python and Streamlit. PawPal+ helps busy pet owners plan daily care tasks across multiple pets — handling priorities, recurring schedules, and time conflicts automatically.
 
-## Scenario
+---
 
-A busy pet owner needs help staying consistent with pet care. They want an assistant that can:
+## Features
 
-- Track pet care tasks (walks, feeding, meds, enrichment, grooming, etc.)
-- Consider constraints (time available, priority, owner preferences)
-- Produce a daily plan and explain why it chose that plan
+### Sorting
+Three sort strategies are available and switchable at runtime via `Scheduler.sort_strategy`:
 
-Your job is to design the system first (UML), then implement the logic in Python, then connect it to the Streamlit UI.
+| Strategy | Behaviour |
+|---|---|
+| `priority_then_time` *(default)* | High → medium → low priority; clock time as tiebreaker |
+| `time_only` | Strict chronological order, ignoring priority |
+| `priority_only` | Priority groups only; insertion order preserved within each group |
 
-## What you will build
+### Conflict Detection & Warnings
+`detect_conflicts()` groups tasks by date before comparing pairs, so cross-date comparisons are skipped entirely. Overlap is checked using a half-open interval: `start < other_end AND other_start < end`.
 
-Your final app should:
+`warn_conflicts()` returns human-readable strings for each conflicting pair — never raises an exception — so the UI can display them inline without crashing.
 
-- Let a user enter basic owner + pet info
-- Let a user add/edit tasks (duration + priority at minimum)
-- Generate a daily schedule/plan based on constraints and priorities
-- Display the plan clearly (and ideally explain the reasoning)
-- Include tests for the most important scheduling behaviors
+### Conflict Resolution
+`resolve_conflicts()` uses a greedy priority-first strategy: tasks are sorted by priority, then lower-priority tasks that overlap a higher-priority one are shifted to start immediately after the blocking task ends (`end_time()` + `reschedule()`).
 
-## Smarter Scheduling
+### Daily & Weekly Recurrence
+Recurring tasks (`recurrence = "daily"` or `"weekly"`) are handled two ways:
 
-The scheduling layer (`pawpal_system.py`) goes beyond a simple task list:
+- **On completion** — `complete_task()` marks the task done and automatically appends the next occurrence using `timedelta(days=1)` or `timedelta(weeks=1)`.
+- **Bulk pre-population** — `expand_recurring(days=N)` generates all instances for the next N days in one call.
 
-- **Sorting** — tasks are ordered by priority (high → medium → low), with time as a tiebreaker. A dedicated `sort_by_time()` method uses a `"%H:%M"` lambda key for pure chronological views.
-- **Filtering** — `filter_by_pet()`, `filter_by_status()`, and `filter_tasks()` (combined) let the owner slice the task list in a single pass without multiple scans.
-- **Conflict detection** — `detect_conflicts()` groups tasks by date before comparing pairs, so cross-date comparisons are skipped entirely. `warn_conflicts()` returns human-readable warning strings rather than raising exceptions.
-- **Conflict resolution** — `resolve_conflicts()` uses a greedy priority-first strategy: lower-priority tasks are shifted to start immediately after the blocking task ends.
-- **Recurring tasks** — marking a `daily` or `weekly` task complete via `complete_task()` automatically schedules the next occurrence using `timedelta`. `expand_recurring()` pre-populates a full week of instances in one call.
+### Filtering
+`filter_tasks()` accepts `pet_name`, `status`, and `task_type` and applies all active filters in a single pass. Convenience wrappers `filter_by_pet()` and `filter_by_status()` delegate to the same method.
 
-## Getting started
+### Walk Scheduling
+`schedule_walk()` creates a walk task and registers it in both the `Scheduler` master list and the individual `Pet` task list atomically — no manual double-add required.
 
-### Setup
+---
+
+## 📸 Demo
+
+<a href="/course_images/ai110/image.png" target="_blank"><img src='/course_images/ai110/image.png' title='PawPal App' width='' alt='PawPal App' class='center-block' /></a>
+
+---
+
+## System Diagram
+
+```mermaid
+classDiagram
+    class Owner {
+        +string name
+        +int available_minutes_per_day
+        +dict preferences
+        +list~Pet~ pets
+        +add_pet(pet) void
+        +set_preferences(preferences) void
+        +get_today_tasks(scheduler, target_date) list~Task~
+    }
+
+    class Pet {
+        +string name
+        +string species
+        +int age
+        +list~Task~ tasks
+        +update_profile(name, species, age) void
+        +add_task(task) void
+        +get_tasks_for_date(target_date) list~Task~
+    }
+
+    class Task {
+        +string title
+        +string task_type
+        +date date
+        +time time
+        +int duration_minutes
+        +string priority
+        +string pet_name
+        +bool is_recurring
+        +string recurrence
+        +string status
+        +mark_done() void
+        +reschedule(new_date, new_time) void
+        +end_time() time
+        +conflicts_with(other_task) bool
+        +to_dict() dict
+    }
+
+    class Scheduler {
+        +list~Task~ tasks
+        +string sort_strategy
+        +add_task(task) void
+        +schedule_walk(pet, date, time, duration, priority) Task
+        +complete_task(task) Task
+        +get_tasks_for_date(target_date) list~Task~
+        +get_today_tasks() list~Task~
+        +sort_tasks(tasks) list~Task~
+        +filter_tasks(pet_name, status, task_type) list~Task~
+        +filter_by_pet(pet_name) list~Task~
+        +filter_by_status(status) list~Task~
+        +expand_recurring(days) list~Task~
+        +detect_conflicts(tasks) list~tuple~
+        +warn_conflicts(tasks) list~string~
+        +resolve_conflicts(tasks) list~Task~
+    }
+
+    Owner "1" *-- "0..*" Pet : owns
+    Pet "1" o-- "0..*" Task : has
+    Scheduler "1" --> "0..*" Task : manages
+    Owner "1" ..> Scheduler : requests plans
+    Scheduler ..> Pet : schedules care for
+```
+
+---
+
+## Project Structure
+
+```
+pawpal_system.py   — Core domain classes: Owner, Pet, Task, Scheduler
+app.py             — Streamlit UI
+tests/
+  test_pawpal.py   — 23 pytest tests covering all core behaviours
+uml_final.mmd      — Mermaid source for the class diagram
+uml_final.png      — Rendered class diagram
+```
+
+---
+
+## Setup
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate       # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Suggested workflow
+## Run the App
 
-1. Read the scenario carefully and identify requirements and edge cases.
-2. Draft a UML diagram (classes, attributes, methods, relationships).
-3. Convert UML into Python class stubs (no logic yet).
-4. Implement scheduling logic in small increments.
-5. Add tests to verify key behaviors.
-6. Connect your logic to the Streamlit UI in `app.py`.
-7. Refine UML so it matches what you actually built.
+```bash
+streamlit run app.py
+```
+
+## Run Tests
+
+```bash
+python -m pytest
+```
+
+Tests cover:
+
+| Area | What is verified |
+|---|---|
+| Sorting | `time_only` returns chronological order regardless of priority |
+| Sorting | `priority_then_time` orders high → medium → low |
+| Recurrence | Completing a `daily` task creates a next-day `pending` occurrence |
+| Recurrence | Completing a `weekly` task creates an occurrence exactly 7 days later |
+| Recurrence | `expand_recurring()` called twice compounds (known non-idempotent behaviour) |
+| Conflict detection | Overlapping tasks on the same date are flagged |
+| Conflict detection | Identical start times are flagged |
+| Conflict detection | Tasks on different dates are never flagged |
+| Conflict detection | Midnight-spanning tasks are a known blind spot (documented) |
+| Task lifecycle | `mark_done()`, `reschedule()`, `to_dict()`, `conflicts_with()` |
+| Pet | `add_task()`, `get_tasks_for_date()`, `update_profile()` |
+| Owner | `add_pet()`, `set_preferences()`, `get_today_tasks()` |
+| Scheduler | `add_task()`, `schedule_walk()`, `get_tasks_for_date()` |

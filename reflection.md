@@ -38,15 +38,21 @@ The conflict resolver uses a single-pass greedy strategy: it sorts tasks by prio
 
 ## 3. AI Collaboration
 
-**a. How you used AI**
+**a. Most effective Copilot features**
 
-- How did you use AI tools during this project (for example: design brainstorming, debugging, refactoring)?
-- What kinds of prompts or questions were most helpful?
+Inline completions were the most useful — especially when implementing repetitive but logic-heavy methods like `filter_tasks()` and `expand_recurring()`. Copilot would complete the pattern after the first condition, which saved time on boilerplate. The chat panel was helpful for quickly explaining what a `defaultdict` grouping strategy would look like before writing `detect_conflicts()`.
 
-**b. Judgment and verification**
+**b. One suggestion I rejected**
 
-- Describe one moment where you did not accept an AI suggestion as-is.
-- How did you evaluate or verify what the AI suggested?
+Copilot initially suggested `detect_conflicts()` as a flat O(n²) double loop over all tasks. I rejected this because it would compare tasks across different dates unnecessarily. I replaced it with a `defaultdict(list)` grouping by date first, so only same-day pairs are ever compared. The AI gave a working solution — but not an efficient or logically clean one.
+
+**c. How separate chat sessions helped**
+
+Keeping design, implementation, and testing in separate sessions prevented context bleed. When writing tests I didn't want the AI to assume implementation details from earlier chats — a fresh session forced me to describe the interface explicitly, which also helped me catch two method name mismatches (`get_tasks` vs `get_tasks_for_date`).
+
+**d. Being the lead architect**
+
+AI tools are fast at filling in structure but they don't know your constraints. Every time Copilot suggested something that "worked," I still had to ask: does this fit the design? Is it consistent with the other classes? The main skill I built was using AI to accelerate execution while keeping all architectural decisions — naming, relationships, tradeoffs — in my own hands.
 
 ---
 
@@ -54,13 +60,11 @@ The conflict resolver uses a single-pass greedy strategy: it sorts tasks by prio
 
 **a. What you tested**
 
-- What behaviors did you test?
-- Why were these tests important?
+23 tests covering: all three sort strategies, daily and weekly recurrence chaining, conflict detection (overlap, identical start, different dates), conflict detection blind spots (midnight-spanning tasks, double `expand_recurring`), task lifecycle (`mark_done`, `reschedule`, `to_dict`), and owner/pet/scheduler integration.
 
 **b. Confidence**
 
-- How confident are you that your scheduler works correctly?
-- What edge cases would you test next if you had more time?
+4/5. Core daily scheduling is solid. Known gaps: weekly recurrence is tested but `expand_recurring` called twice compounds silently, and tasks spanning midnight are not cross-day detected. Both are documented as known limitations.
 
 ---
 
@@ -68,12 +72,12 @@ The conflict resolver uses a single-pass greedy strategy: it sorts tasks by prio
 
 **a. What went well**
 
-- What part of this project are you most satisfied with?
+The conflict detection and resolution pipeline. `detect_conflicts` → `warn_conflicts` → `resolve_conflicts` forms a clean three-step chain that the UI can call independently, which made the Streamlit integration straightforward.
 
-**b. What you would improve**
+**b. What I would improve**
 
-- If you had another iteration, what would you improve or redesign?
+Make `expand_recurring()` idempotent by checking for existing instances before appending, and add a cross-midnight check in `detect_conflicts` for tasks whose `end_time()` crosses into the next date.
 
 **c. Key takeaway**
 
-- What is one important thing you learned about designing systems or working with AI on this project?
+A powerful AI can write correct code faster than you can — but it cannot decide what correct means for your system. That judgment is the architect's job, and it cannot be delegated.

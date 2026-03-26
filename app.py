@@ -7,10 +7,6 @@ st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 st.title("🐾 PawPal+")
 
 # ── Session state initialisation ───────────────────────────────────────────────
-# Streamlit reruns this file top-to-bottom on every interaction.
-# Storing objects in st.session_state keeps them alive across reruns.
-# The "key not in st.session_state" guard means we only create each object ONCE.
-
 if "owner" not in st.session_state:
     st.session_state.owner = Owner(name="")
 
@@ -20,19 +16,60 @@ if "scheduler" not in st.session_state:
 owner: Owner = st.session_state.owner
 scheduler: Scheduler = st.session_state.scheduler
 
-# Computed once per rerun; reused in sections 3, 4, and wherever pet names are needed
 pet_options = [p.name for p in owner.pets]
 
+PRIORITY_EMOJI = {"high": "🔴", "medium": "🟡", "low": "🟢"}
 
-def _show_warnings(warnings: list, header: str = "") -> bool:
-    """Display each warning with st.warning(); return True if any were shown."""
-    if not warnings:
+
+def _show_conflict_cards(tasks: list) -> bool:
+    """Show a structured conflict card for each overlapping pair.
+
+    Each card names both tasks, their pets, and the exact overlapping windows
+    so the owner knows at a glance what to reschedule.
+    Returns True if any conflicts were shown.
+    """
+    conflicts = scheduler.detect_conflicts(tasks)
+    if not conflicts:
         return False
-    if header:
-        st.markdown(header)
-    for msg in warnings:
-        st.warning(msg)
+
+    st.error(f"⚠️ {len(conflicts)} scheduling conflict(s) detected — review before confirming.")
+    for a, b in conflicts:
+        with st.container(border=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"**{a.title}**")
+                st.caption(
+                    f"{PRIORITY_EMOJI.get(a.priority, '')} {a.priority.capitalize()} priority · {a.pet_name}\n\n"
+                    f"🕐 {a.time.strftime('%I:%M %p')} – {a.end_time().strftime('%I:%M %p')}  ({a.duration_minutes} min)"
+                )
+            with col2:
+                st.markdown(f"**{b.title}**")
+                st.caption(
+                    f"{PRIORITY_EMOJI.get(b.priority, '')} {b.priority.capitalize()} priority · {b.pet_name}\n\n"
+                    f"🕐 {b.time.strftime('%I:%M %p')} – {b.end_time().strftime('%I:%M %p')}  ({b.duration_minutes} min)"
+                )
+            st.caption(f"📅 Both on {a.date}  ·  Tip: move the lower-priority task to after {a.end_time().strftime('%I:%M %p')}.")
     return True
+
+
+def _render_schedule_table(tasks: list) -> None:
+    """Render tasks as a clean dataframe, hiding internal fields."""
+    if not tasks:
+        st.info("No tasks to display.")
+        return
+    rows = []
+    for t in tasks:
+        rows.append({
+            "Priority": f"{PRIORITY_EMOJI.get(t.priority, '')} {t.priority.capitalize()}",
+            "Title": t.title,
+            "Pet": t.pet_name,
+            "Time": t.time.strftime("%I:%M %p"),
+            "Duration": f"{t.duration_minutes} min",
+            "Type": t.task_type.capitalize(),
+            "Status": "✅ Done" if t.status == "done" else "⏳ Pending",
+            "Recurring": "🔁 " + t.recurrence if t.is_recurring else "—",
+        })
+    st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
 # ── 1) Owner setup ─────────────────────────────────────────────────────────────
@@ -74,7 +111,11 @@ if st.button("Save pet"):
 
 if owner.pets:
     st.write("Your pets:")
-    st.table([{"name": p.name, "species": p.species, "age": p.age} for p in owner.pets])
+    st.dataframe(
+        [{"Name": p.name, "Species": p.species.capitalize(), "Age": f"{p.age} yr"} for p in owner.pets],
+        use_container_width=True,
+        hide_index=True,
+    )
 else:
     st.info("No pets registered yet.")
 
@@ -103,7 +144,7 @@ else:
             priority=walk_priority,
         )
         st.success(f"Walk scheduled for {pet.name} on {walk_date} at {walk_time.strftime('%I:%M %p')}.")
-        _show_warnings(scheduler.warn_conflicts(scheduler.get_tasks_for_date(walk_date)))
+        _show_conflict_cards(scheduler.get_tasks_for_date(walk_date))
 
 st.divider()
 
@@ -126,6 +167,10 @@ else:
     task_priority  = st.selectbox("Priority", ["low", "medium", "high"], index=1, key="task_priority")
     task_recurring = st.checkbox("Recurring task", key="task_recurring")
 
+    recurrence_type = ""
+    if task_recurring:
+        recurrence_type = st.selectbox("Repeat every", ["daily", "weekly"], key="task_recurrence")
+
     if st.button("Add task"):
         pet = next(p for p in owner.pets if p.name == task_pet_name)
         new_task = Task(
@@ -137,24 +182,48 @@ else:
             priority=task_priority,
             pet_name=pet.name,
             is_recurring=task_recurring,
+            recurrence=recurrence_type,
         )
         scheduler.add_task(new_task)
         pet.add_task(new_task)
         st.success(f"'{new_task.title}' added for {pet.name} on {task_date} at {task_time.strftime('%I:%M %p')}.")
-        _show_warnings(scheduler.warn_conflicts(scheduler.get_tasks_for_date(task_date)))
+        _show_conflict_cards(scheduler.get_tasks_for_date(task_date))
 
 st.divider()
 
 # ── 5) Today's Schedule ────────────────────────────────────────────────────────
 st.subheader("5) Today's Schedule")
-st.caption("All tasks for today, sorted by priority then time.")
+st.caption("Sorted and filtered tasks for today.")
+
+col_sort, col_filter_pet, col_filter_status = st.columns(3)
+
+with col_sort:
+    sort_choice = st.selectbox(
+        "Sort by",
+        ["priority_then_time", "time_only", "priority_only"],
+        key="sort_strategy",
+    )
+    scheduler.sort_strategy = sort_choice
+
+with col_filter_pet:
+    filter_pet = st.selectbox("Filter by pet", ["All"] + pet_options, key="filter_pet")
+
+with col_filter_status:
+    filter_status = st.selectbox("Filter by status", ["All", "pending", "done"], key="filter_status")
 
 today_tasks = owner.get_today_tasks(scheduler, date.today())
 
+# Apply optional filters
+if filter_pet != "All":
+    today_tasks = [t for t in today_tasks if t.pet_name == filter_pet]
+if filter_status != "All":
+    today_tasks = [t for t in today_tasks if t.status == filter_status]
+
 if today_tasks:
-    if not _show_warnings(scheduler.warn_conflicts(today_tasks)):
+    has_conflicts = _show_conflict_cards(today_tasks)
+    if not has_conflicts:
         st.success("No conflicts — schedule looks good.")
-    st.table([t.to_dict() for t in today_tasks])
+    _render_schedule_table(today_tasks)
 else:
     st.info("No tasks scheduled for today.")
 
@@ -168,18 +237,26 @@ if st.button("Generate schedule"):
     if not owner.pets:
         st.error("Add a pet and some tasks first.")
     else:
-        # Reuse today_tasks already computed above rather than calling get_today_tasks again
-        if not today_tasks:
+        base_tasks = owner.get_today_tasks(scheduler, date.today())
+        if not base_tasks:
             st.info("No tasks for today to schedule.")
         else:
-            _show_warnings(scheduler.warn_conflicts(today_tasks), "**Conflicts found — resolving automatically:**")
-            resolved = scheduler.resolve_conflicts(today_tasks)
-            if _show_warnings(scheduler.warn_conflicts(resolved)):
+            had_conflicts = _show_conflict_cards(base_tasks)
+            resolved = scheduler.resolve_conflicts(base_tasks)
+
+            remaining = scheduler.detect_conflicts(resolved)
+            if remaining:
                 st.error("Some conflicts could not be resolved automatically.")
             else:
                 total_min = sum(t.duration_minutes for t in resolved)
-                st.success(
-                    f"Schedule ready — {len(resolved)} task(s), "
-                    f"{total_min} min total out of {owner.available_minutes_per_day} min available."
-                )
-            st.table([t.to_dict() for t in resolved])
+                pct = round(total_min / owner.available_minutes_per_day * 100)
+                if had_conflicts:
+                    st.success("Conflicts resolved — here's your updated plan.")
+                else:
+                    st.success(
+                        f"Schedule ready — {len(resolved)} task(s), "
+                        f"{total_min} min ({pct}% of your {owner.available_minutes_per_day} min/day)."
+                    )
+
+            st.markdown("**Final plan:**")
+            _render_schedule_table(resolved)
