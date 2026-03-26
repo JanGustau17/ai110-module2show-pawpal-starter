@@ -1,8 +1,14 @@
 import streamlit as st
+from datetime import date
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
 st.title("🐾 PawPal+")
+
+if "pet" not in st.session_state:
+    st.session_state.pet = None
+if "tasks" not in st.session_state:
+    st.session_state.tasks = []
 
 st.markdown(
     """
@@ -38,16 +44,77 @@ At minimum, your system should:
 
 st.divider()
 
+st.subheader("1) Add a Pet")
+st.caption("Create or update your pet profile.")
+
+pet_name_input = st.text_input("Pet name", value="Mochi", key="pet_name_input")
+species_input = st.selectbox("Species", ["dog", "cat", "other"], key="species_input")
+age_input = st.number_input("Age (years)", min_value=0, max_value=40, value=2, key="age_input")
+
+if st.button("Save pet"):
+    st.session_state.pet = {
+        "name": pet_name_input.strip() or "Unnamed Pet",
+        "species": species_input,
+        "age": int(age_input),
+    }
+    st.success("Pet saved.")
+
+if st.session_state.pet:
+    st.write("Current pet profile:")
+    st.json(st.session_state.pet)
+else:
+    st.info("No pet added yet.")
+
+st.divider()
+
+st.subheader("2) Schedule a Walk")
+st.caption("Add a walk task with date, time, and duration.")
+
+walk_date = st.date_input("Walk date", value=date.today(), key="walk_date")
+walk_time = st.time_input("Walk time", key="walk_time")
+walk_duration = st.number_input(
+    "Walk duration (minutes)", min_value=5, max_value=180, value=30, key="walk_duration"
+)
+walk_priority = st.selectbox("Walk priority", ["low", "medium", "high"], index=2, key="walk_priority")
+
+if st.button("Schedule walk"):
+    if not st.session_state.pet:
+        st.error("Please add a pet first.")
+    else:
+        st.session_state.tasks.append(
+            {
+                "task_type": "walk",
+                "title": f"Walk {st.session_state.pet['name']}",
+                "date": walk_date.isoformat(),
+                "time": walk_time.strftime("%H:%M"),
+                "duration_minutes": int(walk_duration),
+                "priority": walk_priority,
+            }
+        )
+        st.success("Walk scheduled.")
+
+st.divider()
+
+st.subheader("3) See Today's Tasks")
+st.caption("Shows only tasks scheduled for today.")
+
+today = date.today().isoformat()
+today_tasks = [task for task in st.session_state.tasks if task.get("date") == today]
+
+if today_tasks:
+    st.table(today_tasks)
+else:
+    st.info("No tasks scheduled for today.")
+
+st.divider()
+
 st.subheader("Quick Demo Inputs (UI only)")
 owner_name = st.text_input("Owner name", value="Jordan")
-pet_name = st.text_input("Pet name", value="Mochi")
-species = st.selectbox("Species", ["dog", "cat", "other"])
+pet_name = st.text_input("Pet name", value="Mochi", key="legacy_pet_name")
+species = st.selectbox("Species", ["dog", "cat", "other"], key="legacy_species")
 
 st.markdown("### Tasks")
 st.caption("Add a few tasks. In your final version, these should feed into your scheduler.")
-
-if "tasks" not in st.session_state:
-    st.session_state.tasks = []
 
 col1, col2, col3 = st.columns(3)
 with col1:

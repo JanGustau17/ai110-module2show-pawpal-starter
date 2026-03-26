@@ -2,15 +2,25 @@
 
 ## 1. System Design
 
-**a. Initial design**
+The current system design focuses on three core user actions that match the MVP goals for PawPal+.
 
-- Briefly describe your initial UML design.
-- What classes did you include, and what responsibilities did you assign to each?
+1. Add a pet
+- The user can create a pet profile by entering the pet's name, species, and age.
+- The app stores this profile in session state so it can be used by later actions.
+- This action establishes the primary entity in the system, and all care tasks are associated with that pet.
 
-**b. Design changes**
+2. Schedule a walk
+- The user can schedule a walk task by selecting a date, time, duration, and priority.
+- Before creating the task, the app checks whether a pet profile exists.
+- If no pet has been added, the app blocks scheduling and shows a clear message.
+- If a pet exists, the app creates a structured walk task and saves it in the task list.
 
-- Did your design change during implementation?
-- If yes, describe at least one change and why you made it.
+3. See today's tasks
+- The app filters the stored task list to only show tasks scheduled for the current date.
+- This gives the user a focused daily view instead of a full history.
+- If no tasks exist for today, the app communicates that state clearly.
+
+Design note: this first implementation uses Streamlit session state as the storage layer and keeps logic close to the UI to deliver a working vertical slice quickly. A next iteration can extract these behaviors into dedicated classes (such as Pet, Task, and Scheduler) for stronger separation of concerns and easier testing.
 
 ---
 
