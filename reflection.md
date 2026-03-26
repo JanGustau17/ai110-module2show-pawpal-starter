@@ -28,13 +28,11 @@ Design note: this first implementation uses Streamlit session state as the stora
 
 **a. Constraints and priorities**
 
-- What constraints does your scheduler consider (for example: time, priority, preferences)?
-- How did you decide which constraints mattered most?
+The scheduler considers three constraints: time (when a task is scheduled and how long it runs), priority (high / medium / low), and the owner's available minutes per day. When sorting, priority is applied first so high-urgency tasks like medication always appear before low-urgency ones like grooming, then time breaks ties within the same priority band. Available minutes was treated as a soft cap — the scheduler surfaces the total against the budget but does not hard-block tasks that exceed it, since pet care tasks often cannot simply be skipped.
 
 **b. Tradeoffs**
 
-- Describe one tradeoff your scheduler makes.
-- Why is that tradeoff reasonable for this scenario?
+The conflict resolver uses a single-pass greedy strategy: it sorts tasks by priority, then shifts each lower-priority task to start exactly when the higher-priority one ends. This is fast and predictable but can create a cascade — pushing task B may cause B to now overlap C, which is not re-checked. The tradeoff is reasonable here because most pet care schedules are sparse (a handful of tasks per day), so multi-level cascades are rare in practice, and the simplicity makes the behavior easy to explain to the owner.
 
 ---
 

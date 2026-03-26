@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import copy
 from dataclasses import dataclass, field
 from datetime import date, time, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -17,6 +18,7 @@ class Task:
     priority: str
     pet_name: str
     is_recurring: bool = False
+    recurrence: str = ""   # "daily" | "weekly" | "" (one-off)
     status: str = "pending"
 
     def mark_done(self) -> None:
@@ -136,25 +138,120 @@ class Scheduler:
         """Return today's tasks sorted according to the current sort strategy."""
         return self.sort_tasks(self.get_tasks_for_date(date.today()))
 
+    def complete_task(self, task: Task) -> Optional[Task]:
+        """Mark a task done and, if it is recurring, schedule the next occurrence automatically.
+
+        Returns the newly created Task instance for 'daily'/'weekly' tasks, or None for one-offs.
+        """
+        task.mark_done()
+
+        if not task.is_recurring or task.recurrence not in ("daily", "weekly"):
+            return None
+
+        one_day  = timedelta(days=1)
+        one_week = timedelta(weeks=1)
+        gap = one_day if task.recurrence == "daily" else one_week
+
+        next_task = copy(task)
+        next_task.date   = task.date + gap
+        next_task.status = "pending"
+        self.tasks.append(next_task)
+        return next_task
+
+    def sort_by_time(self, tasks: List[Task]) -> List[Task]:
+        """Sort tasks by time using a lambda on 'HH:MM' strings — works correctly for 24-hour format."""
+        return sorted(tasks, key=lambda t: t.time.strftime("%H:%M"))
+
     def sort_tasks(self, tasks: List[Task]) -> List[Task]:
-        """Sort tasks using the current strategy: 'priority_then_time', 'time_only', or 'priority_only'."""
+        """Sort tasks using the current strategy: 'priority_then_time', 'time_only', or 'priority_only'.
+
+        Uses pre-computed sort keys so strftime() is called once per task, not once per comparison.
+        """
         if self.sort_strategy == "priority_then_time":
+            # Build key tuples once, sort against them — O(n) key build + O(n log n) sort
             return sorted(tasks, key=lambda t: (PRIORITY_ORDER.get(t.priority, 99), t.time))
         elif self.sort_strategy == "time_only":
-            return sorted(tasks, key=lambda t: t.time)
+            return self.sort_by_time(tasks)
         elif self.sort_strategy == "priority_only":
             return sorted(tasks, key=lambda t: PRIORITY_ORDER.get(t.priority, 99))
         return tasks
 
+    def filter_by_status(self, status: str) -> List[Task]:
+        """Return all tasks whose status matches the given value (e.g. 'pending' or 'done')."""
+        return [t for t in self.tasks if t.status == status]
+
+    def filter_by_pet(self, pet_name: str) -> List[Task]:
+        """Return all tasks belonging to the named pet."""
+        return [t for t in self.tasks if t.pet_name == pet_name]
+
+    def filter_tasks(
+        self,
+        pet_name: Optional[str] = None,
+        status: Optional[str] = None,
+        task_type: Optional[str] = None,
+    ) -> List[Task]:
+        """Return tasks matching all supplied filters in a single pass; omitted filters are ignored."""
+        return [
+            t for t in self.tasks
+            if (pet_name  is None or t.pet_name  == pet_name)
+            and (status   is None or t.status    == status)
+            and (task_type is None or t.task_type == task_type)
+        ]
+
+    def expand_recurring(self, days: int = 7) -> List[Task]:
+        """Generate copies of every recurring task for the next *days* days and add them to the scheduler."""
+        today = date.today()
+        new_tasks: List[Task] = []
+        templates = [t for t in self.tasks if t.is_recurring and t.recurrence in ("daily", "weekly")]
+        for template in templates:
+            step = 1 if template.recurrence == "daily" else 7
+            for offset in range(step, days + 1, step):
+                instance = copy(template)
+                instance.date = today + timedelta(days=offset)  # simpler than fromordinal/toordinal
+                instance.status = "pending"
+                new_tasks.append(instance)
+        self.tasks.extend(new_tasks)
+        return new_tasks
+
     def detect_conflicts(self, tasks: Optional[List[Task]] = None) -> List[Tuple[Task, Task]]:
-        """Return all pairs of tasks whose time windows overlap on the same date."""
+        """Return all pairs of tasks whose time windows overlap on the same date.
+
+        Groups tasks by date first so only same-date pairs are compared,
+        avoiding O(n²) cross-date checks.
+        """
+        from collections import defaultdict
         check = tasks if tasks is not None else self.tasks
+        by_date: Dict[date, List[Task]] = defaultdict(list)
+        for t in check:
+            by_date[t.date].append(t)
+
         conflicts = []
-        for i in range(len(check)):
-            for j in range(i + 1, len(check)):
-                if check[i].conflicts_with(check[j]):
-                    conflicts.append((check[i], check[j]))
+        for day_tasks in by_date.values():
+            for i in range(len(day_tasks)):
+                for j in range(i + 1, len(day_tasks)):
+                    if day_tasks[i].conflicts_with(day_tasks[j]):
+                        conflicts.append((day_tasks[i], day_tasks[j]))
         return conflicts
+
+    def warn_conflicts(self, tasks: Optional[List[Task]] = None) -> List[str]:
+        """Return a warning string for every overlapping task pair — never raises an exception.
+
+        Each message names both tasks, their pets, the shared date, and the overlapping times
+        so the owner knows exactly what needs to be rescheduled.
+        """
+        warnings = []
+        for a, b in self.detect_conflicts(tasks):
+            a_end = (datetime.combine(a.date, a.time) + timedelta(minutes=a.duration_minutes)).time()
+            b_end = (datetime.combine(b.date, b.time) + timedelta(minutes=b.duration_minutes)).time()
+            msg = (
+                f"WARNING: '{a.title}' ({a.pet_name}, "
+                f"{a.time.strftime('%H:%M')}–{a_end.strftime('%H:%M')}) "
+                f"overlaps with '{b.title}' ({b.pet_name}, "
+                f"{b.time.strftime('%H:%M')}–{b_end.strftime('%H:%M')}) "
+                f"on {a.date}."
+            )
+            warnings.append(msg)
+        return warnings
 
     def resolve_conflicts(self, tasks: Optional[List[Task]] = None) -> List[Task]:
         """Resolve overlapping tasks by shifting lower-priority tasks to start after the blocking task ends."""
