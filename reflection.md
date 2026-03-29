@@ -89,3 +89,31 @@ Make `expand_recurring()` idempotent by checking for existing instances before a
 **c. Key takeaway**
 
 A powerful AI can write correct code faster than you can — but it cannot decide what correct means for your system. That judgment is the architect's job, and it cannot be delegated.
+
+---
+
+## 6. Prompt Comparison (Challenge 5)
+
+**Task tested:** Rescheduling weekly recurring tasks — specifically, what `complete_task()` should do when `recurrence == "weekly"`.
+
+**Claude (Anthropic):**
+```python
+gap = timedelta(days=1) if task.recurrence == "daily" else timedelta(weeks=1)
+next_task = copy(task)
+next_task.date = task.date + gap
+next_task.status = "pending"
+```
+Clean, uses `timedelta(weeks=1)` directly, leverages `copy()` to avoid re-specifying every field. Easy to read and extend.
+
+**GPT-4o (OpenAI):**
+```python
+if task.recurrence == "weekly":
+    next_date = task.date + timedelta(days=7)
+next_task = Task(title=task.title, task_type=task.task_type, date=next_date,
+                 time=task.time, duration_minutes=task.duration_minutes,
+                 priority=task.priority, pet_name=task.pet_name,
+                 is_recurring=True, recurrence="weekly", status="pending")
+```
+Correct but verbose — re-specifies every Task field manually, so adding a new field later requires updating this block too.
+
+**Verdict:** Claude's version is more modular. `copy()` means the next-occurrence logic stays decoupled from Task's constructor signature. GPT-4o's version is more explicit but brittle — a new field on `Task` would silently produce a wrong next occurrence if the constructor call isn't updated.

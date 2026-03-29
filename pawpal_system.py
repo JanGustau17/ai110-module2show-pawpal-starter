@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 from collections import defaultdict
 from copy import copy
 from dataclasses import dataclass, field
@@ -102,6 +104,73 @@ class Owner:
         pet_names = {pet.name for pet in self.pets}
         tasks = [t for t in scheduler.get_tasks_for_date(target_date) if t.pet_name in pet_names]
         return scheduler.sort_tasks(tasks)
+
+    def save_to_json(self, path: str = "data.json") -> None:
+        """Serialize the owner, all pets, and all their tasks to a JSON file."""
+        data = {
+            "name": self.name,
+            "available_minutes_per_day": self.available_minutes_per_day,
+            "preferences": self.preferences,
+            "pets": [
+                {
+                    "name": p.name,
+                    "species": p.species,
+                    "age": p.age,
+                    "tasks": [
+                        {
+                            "title": t.title,
+                            "task_type": t.task_type,
+                            "date": str(t.date),
+                            "time": t.time.strftime("%H:%M"),
+                            "duration_minutes": t.duration_minutes,
+                            "priority": t.priority,
+                            "pet_name": t.pet_name,
+                            "is_recurring": t.is_recurring,
+                            "recurrence": t.recurrence,
+                            "status": t.status,
+                        }
+                        for t in p.tasks
+                    ],
+                }
+                for p in self.pets
+            ],
+        }
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+
+    @classmethod
+    def load_from_json(cls, path: str = "data.json") -> Optional["Owner"]:
+        """Load an Owner (with pets and tasks) from a JSON file.
+
+        Returns None if the file does not exist.
+        """
+        if not os.path.exists(path):
+            return None
+        with open(path) as f:
+            data = json.load(f)
+        owner = cls(
+            name=data["name"],
+            available_minutes_per_day=data.get("available_minutes_per_day", 120),
+            preferences=data.get("preferences", {}),
+        )
+        for p_data in data.get("pets", []):
+            pet = Pet(name=p_data["name"], species=p_data["species"], age=p_data["age"])
+            for t_data in p_data.get("tasks", []):
+                task = Task(
+                    title=t_data["title"],
+                    task_type=t_data["task_type"],
+                    date=date.fromisoformat(t_data["date"]),
+                    time=time.fromisoformat(t_data["time"]),
+                    duration_minutes=t_data["duration_minutes"],
+                    priority=t_data["priority"],
+                    pet_name=t_data["pet_name"],
+                    is_recurring=t_data.get("is_recurring", False),
+                    recurrence=t_data.get("recurrence", ""),
+                    status=t_data.get("status", "pending"),
+                )
+                pet.add_task(task)
+            owner.add_pet(pet)
+        return owner
 
 
 @dataclass
@@ -252,6 +321,28 @@ class Scheduler:
             )
             warnings.append(msg)
         return warnings
+
+    def next_available_slot(self, target_date: date, duration_minutes: int, start_hour: int = 7, end_hour: int = 21) -> Optional[time]:
+        """Return the earliest start time on target_date that fits a task of duration_minutes.
+
+        Scans the day's existing tasks in chronological order and returns the first
+        gap that is wide enough.  Returns None if no slot exists before end_hour.
+        """
+        day_tasks = sorted(self.get_tasks_for_date(target_date), key=lambda t: t.time)
+        candidate = datetime.combine(target_date, time(start_hour, 0))
+        deadline  = datetime.combine(target_date, time(end_hour,   0))
+
+        for t in day_tasks:
+            task_start = datetime.combine(target_date, t.time)
+            task_end   = task_start + timedelta(minutes=t.duration_minutes)
+            if candidate + timedelta(minutes=duration_minutes) <= task_start:
+                return candidate.time()   # gap before this task is wide enough
+            candidate = max(candidate, task_end)  # move past the blocking task
+
+        # Check the trailing gap after all tasks
+        if candidate + timedelta(minutes=duration_minutes) <= deadline:
+            return candidate.time()
+        return None
 
     def resolve_conflicts(self, tasks: Optional[List[Task]] = None) -> List[Task]:
         """Resolve overlapping tasks by shifting lower-priority tasks to start after the blocking task ends."""

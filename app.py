@@ -6,12 +6,26 @@ from pawpal_system import Owner, Pet, Scheduler, Task
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 st.title("🐾 PawPal+")
 
+DATA_FILE = "data.json"
+
 # ── Session state initialisation ───────────────────────────────────────────────
+# On first load, try to restore a previous session from data.json.
 if "owner" not in st.session_state:
-    st.session_state.owner = Owner(name="")
+    loaded = Owner.load_from_json(DATA_FILE)
+    st.session_state.owner = loaded if loaded else Owner(name="")
 
 if "scheduler" not in st.session_state:
-    st.session_state.scheduler = Scheduler()
+    sched = Scheduler()
+    # Re-register all persisted pet tasks into the scheduler
+    for pet in st.session_state.owner.pets:
+        for task in pet.tasks:
+            sched.add_task(task)
+    st.session_state.scheduler = sched
+
+
+def _save() -> None:
+    """Persist current owner + pets + tasks to data.json."""
+    st.session_state.owner.save_to_json(DATA_FILE)
 
 owner: Owner = st.session_state.owner
 scheduler: Scheduler = st.session_state.scheduler
@@ -80,6 +94,7 @@ owner_name_input = st.text_input("Your name", value=owner.name or "Jordan", key=
 
 if st.button("Save owner"):
     owner.name = owner_name_input.strip() or "Owner"
+    _save()
     st.success(f"Welcome, {owner.name}!")
 
 if owner.name:
@@ -103,10 +118,12 @@ if st.button("Save pet"):
         existing = next((p for p in owner.pets if p.name == name), None)
         if existing:
             existing.update_profile(name, species_input, int(age_input))
+            _save()
             st.success(f"Updated profile for {name}.")
         else:
             new_pet = Pet(name=name, species=species_input, age=int(age_input))
             owner.add_pet(new_pet)
+            _save()
             st.success(f"{name} added to your account.")
 
 if owner.pets:
@@ -143,6 +160,7 @@ else:
             duration=int(walk_duration),
             priority=walk_priority,
         )
+        _save()
         st.success(f"Walk scheduled for {pet.name} on {walk_date} at {walk_time.strftime('%I:%M %p')}.")
         _show_conflict_cards(scheduler.get_tasks_for_date(walk_date))
 
@@ -186,6 +204,7 @@ else:
         )
         scheduler.add_task(new_task)
         pet.add_task(new_task)
+        _save()
         st.success(f"'{new_task.title}' added for {pet.name} on {task_date} at {task_time.strftime('%I:%M %p')}.")
         _show_conflict_cards(scheduler.get_tasks_for_date(task_date))
 

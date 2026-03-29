@@ -35,6 +35,14 @@ Recurring tasks (`recurrence = "daily"` or `"weekly"`) are handled two ways:
 ### Walk Scheduling
 `schedule_walk()` creates a walk task and registers it in both the `Scheduler` master list and the individual `Pet` task list atomically — no manual double-add required.
 
+### Next Available Slot *(Challenge feature)*
+`next_available_slot(date, duration_minutes)` scans existing tasks chronologically and returns the earliest gap that fits a new task within a configurable day window (default 07:00–21:00). Returns `None` if no slot exists.
+
+**How Agent Mode was used:** The algorithm was designed by prompting Claude Code with the full scheduler context and asking: *"Add a `next_available_slot` method that finds the first free gap on a given date wide enough for a task of N minutes, scanning existing tasks in time order."* The agent produced the gap-scanning loop using `max(candidate, task_end)` to advance past blocking tasks without nested conditionals — a cleaner approach than the manually drafted version which used index comparisons.
+
+### Data Persistence *(Challenge feature)*
+`Owner.save_to_json()` serializes the owner, all pets, and all tasks to `data.json`. `Owner.load_from_json()` restores the full object graph on startup. The Streamlit app loads persisted data automatically on first run, so pets and tasks survive page refreshes and browser closes.
+
 ---
 
 ## 📸 Demo
