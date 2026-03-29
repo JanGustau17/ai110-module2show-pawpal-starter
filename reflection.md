@@ -22,6 +22,14 @@ The current system design focuses on three core user actions that match the MVP 
 
 Design note: this first implementation uses Streamlit session state as the storage layer and keeps logic close to the UI to deliver a working vertical slice quickly. A next iteration can extract these behaviors into dedicated classes (such as Pet, Task, and Scheduler) for stronger separation of concerns and easier testing.
 
+**1b. Design changes**
+
+After asking Copilot to review the initial skeleton, two issues were flagged and changed:
+
+1. `Pet` had no `tasks` list and no `add_task()` method. The original design assumed the Scheduler would be the only place tasks lived, but that made per-pet queries require a full scan of the scheduler. Adding `tasks: list` to `Pet` allowed `get_tasks_for_date()` to run directly on the pet without touching the scheduler.
+
+2. `Task` had `pet_id` (an integer reference) instead of `pet_name` (a string). Since this app has no database, a foreign key integer added complexity with no benefit. Replacing it with `pet_name` kept lookups simple and human-readable throughout the UI.
+
 ---
 
 ## 2. Scheduling Logic and Tradeoffs
